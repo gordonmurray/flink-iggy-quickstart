@@ -1,0 +1,73 @@
+services:
+  iggy:
+    image: apache/iggy:0.7.0
+    container_name: iggy
+    restart: unless-stopped
+    command: ["--with-default-root-credentials"]
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      - IGGY_TCP_ADDRESS=0.0.0.0:8090
+      - IGGY_HTTP_ADDRESS=0.0.0.0:3000
+    ports:
+      - "3000:3000"
+      - "8090:8090"
+    volumes:
+      - iggy-data:/local_data
+
+  producer:
+    build: ./producer
+    container_name: producer
+    restart: unless-stopped
+    environment:
+      - IGGY_URL=iggy+tcp://iggy:iggy@iggy:8090
+      - PRODUCE_INTERVAL=0.5
+    depends_on:
+      - iggy
+
+  jobmanager:
+    image: flink:1.20.3-java17
+    container_name: flink-jobmanager
+    ports:
+      - "8081:8081"
+    command: jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+    volumes:
+      - ./libs/flink-connector-iggy.jar:/opt/flink/lib/flink-connector-iggy.jar
+    depends_on:
+      - iggy
+
+  taskmanager:
+    image: flink:1.20.3-java17
+    container_name: flink-taskmanager
+    depends_on:
+      - jobmanager
+    command: taskmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 2
+    volumes:
+      - ./libs/flink-connector-iggy.jar:/opt/flink/lib/flink-connector-iggy.jar
+
+  sql-client:
+    image: flink:1.20.3-java17
+    container_name: flink-sql-client
+    command: sleep infinity
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        rest.address: jobmanager
+    volumes:
+      - ./libs/flink-connector-iggy.jar:/opt/flink/lib/flink-connector-iggy.jar
+      - ./flink/sql:/opt/flink/sql
+    depends_on:
+      - jobmanager
+
+volumes:
+  iggy-data:
